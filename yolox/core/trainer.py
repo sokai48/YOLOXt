@@ -219,8 +219,8 @@ class Trainer:
 
     def after_epoch(self):
         self.save_ckpt(ckpt_name="latest")
-        if (self.epoch+1) % 10 == 0 : 
-            self.save_ckpt(ckpt_name= "epoch_{}".format(self.epoch+1))
+        # if (self.epoch+1) % 10 == 0 : 
+        #     self.save_ckpt(ckpt_name= "epoch_{}".format(self.epoch+1))
 
         if (self.epoch + 1) % self.exp.eval_interval == 0:
             all_reduce_norm(self.model)
@@ -362,7 +362,9 @@ class Trainer:
 
         self.save_ckpt("last_epoch", update_best_ckpt)
         if self.save_history_ckpt:
-            self.save_ckpt(f"epoch_{self.epoch + 1}")
+            if (self.epoch+1) % 10 == 0 : 
+                self.save_ckpt(ckpt_name= "epoch_{}".format(self.epoch+1))
+            # self.save_ckpt(f"epoch_{self.epoch + 1}")
 
     def save_ckpt(self, ckpt_name, update_best_ckpt=False):
         if self.rank == 0:
