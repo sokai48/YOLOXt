@@ -85,11 +85,12 @@ if __name__ == "__main__":
 
 
     #讀入原始label
-    root_dir = "/home/lab602.10977014_0n1/.pipeline2/10977014/YOLOXt/YOLO2COCO/dataset/kitti/addseg/"
-    output_dir = "/home/lab602.10977014_0n1/.pipeline2/10977014/YOLOXt/YOLO2COCO/dataset/kitti/addseg/newlabels/"
+    root_dir = "/home/lab602.10977014_0n1/.pipeline2/10977014/YOLOXt/YOLO2COCO/dataset/kitti/stamp/original/"
+    output_dir = "/home/lab602.10977014_0n1/.pipeline2/10977014/YOLOXt/YOLO2COCO/dataset/kitti/stamp/original/newlabels/"
+    img_dir = "/home/lab602.10977014_0n1/.pipeline2/10977014/YOLOXt/YOLO2COCO/dataset/kitti/stamp/original/images/"
     dataset = kitti_object(root_dir)
     # print(len(dataset))
-    
+
     # for data_idx in range(len(dataset)):
     for f in os.listdir(root_dir+"/labels") :
         data_idx = int(f.split(".", 1)[0])
@@ -107,13 +108,16 @@ if __name__ == "__main__":
 
         for obj in objects:
 
-            if obj.type == "Car" or obj.type == "Van" or obj.type =="Pedestrian" or obj.type =="Person_sitting" or obj.type =="Cyclist" :
+            # if obj.type == "Car" or obj.type == "Van" or obj.type =="Pedestrian" or obj.type =="Person_sitting" or obj.type =="Cyclist" :
+            if obj.type == "Car" or obj.type == "Van" or obj.type =="Truck" or obj.type =="Tram" :
+                if obj.type == "Car"  : type = 0
+                elif obj.type == "Van" : type = 1
+                elif obj.type == "Truck" : type = 2
+                elif obj.type == "Tram" : type = 3
+                # elif obj.type == "Pedestrian" or obj.type =="Person_sitting" : type = 4
+                # elif obj.type == "Cyclist" : type = 2
 
-                if obj.type == "Car"  or obj.type =="Van" : type = 0
-                elif obj.type == "Pedestrian" or obj.type =="Person_sitting" : type = 1
-                elif obj.type == "Cyclist" : type = 2
-
-                print(type)
+                # print(type)
                 box = (obj.xmin,obj.xmax,obj.ymin,obj.ymax)
                 x,y,w,h = dataset.convert_to_yolo( (ow,oh), box )
                 z = obj.t[2]
@@ -122,9 +126,9 @@ if __name__ == "__main__":
 
 
                 list.append(column)
-                print(column)
+                # print(column)
                 f.writelines(column)
-                print(list)
+                # print(list)
 
         # with open ('N_a.txt','w') as q:
         #     for i in a:
@@ -134,8 +138,20 @@ if __name__ == "__main__":
         #         q.write('\n')
         #         t=''
 
-    
         f.close
-
-
         #輸出成需要的txt
+
+
+
+
+    #清掉空的label.txt
+    for f in os.listdir(output_dir) :
+        data_idx = int(f.split(".", 1)[0])
+        path = output_dir + ("%06d.txt" % (data_idx))
+        img_path = img_dir + ("%06d.png" % (data_idx))
+        if os.path.getsize(path) == 0 :
+            print("空的 : " + path)
+            os.remove(path) 
+            if os.path.exists(img_path) :
+                print(img_path)
+                os.remove(img_path)

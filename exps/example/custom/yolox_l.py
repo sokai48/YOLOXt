@@ -9,8 +9,8 @@ from yolox.exp import Exp as MyExp
 class Exp(MyExp):
     def __init__(self):
         super(Exp, self).__init__()
-        self.depth = 0.33
-        self.width = 0.50
+        self.depth = 1
+        self.width = 1
         self.exp_name = os.path.split(os.path.realpath(__file__))[1].split(".")[0]
 
         # Define yourself dataset path
@@ -18,7 +18,7 @@ class Exp(MyExp):
         self.train_ann = "instances_train2017.json"
         self.val_ann = "instances_val2017.json"
 
-        self.num_classes = 3
+        self.num_classes = 4
 
         self.max_epoch = 500
         self.data_num_workers = 0
@@ -30,7 +30,6 @@ class Exp(MyExp):
         # self.input_size = (640, 640) 
 
         self.eval_interval = 10
-        print("!!!!!!!!!!!!!!!!!!!!")
 
         # --------------- transform config ----------------- #
         # prob of applying mosaic aug

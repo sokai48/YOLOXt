@@ -31,7 +31,7 @@ def make_parser():
     parser.add_argument("-n", "--name", type=str, default=None, help="model name")
 
     parser.add_argument(
-        "--path", default="./datasets/", help="path to images or video"
+        "--path", default="./datasets/bddtest", help="path to images or video"
     )
     parser.add_argument("--camid", type=int, default=0, help="webcam demo camera id")
     parser.add_argument(
@@ -45,12 +45,12 @@ def make_parser():
     parser.add_argument(
         "-f",
         "--exp_file",
-        default="exps/example/custom/yolox_s.py",
+        default="exps/example/custom/yolox_l.py",
         type=str,
         help="pls input your experiment description file",
     )
     # YOLOX_outputs/yolox_s_300epoch/latest_ckpt.pth
-    parser.add_argument("-c", "--ckpt", default="YOLOX_outputs/yolox_s/latest_ckpt.pth", type=str, help="ckpt for eval")
+    parser.add_argument("-c", "--ckpt", default="YOLOX_outputs/yolox_l/best_ckpt.pth", type=str, help="ckpt for eval")
     parser.add_argument(
         "--device",
         default="gpu",
@@ -88,6 +88,14 @@ def make_parser():
         action="store_true",
         help="Using TensorRT model for testing.",
     )
+
+    parser.add_argument(
+        "--load_gt",
+        default="datasets/bddtest/",
+        type=str,
+        help="path of bdd_dataset"
+    )
+
     return parser
 
 
@@ -180,7 +188,10 @@ class Predictor(object):
         bboxes = output[:, 0:4]
 
         # preprocessing: resize
+        print(bboxes)
         bboxes /= ratio
+        print(ratio)
+        print(bboxes)
 
         cls = output[:, 7]
         print(cls)
@@ -205,6 +216,7 @@ def image_demo(predictor, vis_folder, path, current_time, save_result):
     files.sort()
     for image_name in files:
         outputs, img_info = predictor.inference(image_name)
+        print(outputs )
         result_image = predictor.visual(outputs[0], img_info, predictor.confthre)
         if save_result:
             save_folder = os.path.join(
@@ -254,12 +266,20 @@ def imageflow_demo(predictor, vis_folder, current_time, args):
             break
 
 
+
 def main(exp, args):
     if not args.experiment_name:
         args.experiment_name = exp.exp_name
 
     file_name = os.path.join(exp.output_dir, args.experiment_name)
     os.makedirs(file_name, exist_ok=True)
+    print(file_name)
+
+
+    print(args.load_gt) 
+    gtlist = os.listdir(args.load_gt)
+    print(gtlist)
+
 
     vis_folder = None
     if args.save_result:
