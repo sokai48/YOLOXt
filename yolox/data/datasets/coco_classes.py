@@ -89,6 +89,7 @@
 
 COCO_CLASSES = (
      "Car",
-     "Pedestrian",
-     "Cyclist",
+     "Van",
+     "Truck",
+     "Tram",
  )

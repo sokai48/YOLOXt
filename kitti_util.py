@@ -598,6 +598,11 @@ def project_to_image(pts_3d, P):
     return pts_2d[:, 0:2]
 
 
+
+
+
+
+
 def compute_box_3d(obj, P):
     """ Takes an object and a projection matrix (P) and projects the 3d
         bounding box into the image plane.
@@ -694,8 +699,8 @@ def draw_projected_box3d(image, qs, color=(0, 255, 0), thickness=2):
           |/         |/
           6 -------- 7
     """
-    print("1 -------- 0")
-    print(qs)
+    # print("1 -------- 0")
+    # print(qs)
 
     qs = qs.astype(np.int32)
     for k in range(0, 4):
@@ -716,13 +721,13 @@ def draw_projected_box3d(image, qs, color=(0, 255, 0), thickness=2):
         # print(qs[i, 0], qs[i, 1])
         # print(qs[j, 0], qs[j, 1])
         # print("==========2.i,j=============")
-        cv2.line(image, (qs[4, 0], qs[4, 1]), (qs[5, 0], qs[5, 1]), (0, 0, 255), thickness)
+        cv2.line(image, (qs[i, 0], qs[i, 1]), (qs[j, 0], qs[j, 1]), color, thickness)
 
         i, j = k, k + 4
         # print("==========3.i,j=============")
         # print(i,j)
         # print("==========3.i,j=============")
-        cv2.line(image, (qs[4, 0], qs[4, 1]), (qs[0, 0], qs[0, 1]), color, thickness)
+        cv2.line(image, (qs[i, 0], qs[i, 1]), (qs[j, 0], qs[j, 1]), color, thickness)
     return image
 
 

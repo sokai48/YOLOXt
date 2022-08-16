@@ -45,8 +45,8 @@ class COCODataset(Dataset):
         data_dir=None,
         json_file="instances_train2017.json",
         name="train2017",
-        # img_size=(416, 416),
-        img_size=(192, 640),
+        img_size=(416, 416),
+        # img_size=(192, 640),
         preproc=None,
         cache=False,
     ):

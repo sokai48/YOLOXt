@@ -8,17 +8,23 @@ import random
 import warnings
 from loguru import logger
 
-import torch
-import torch.backends.cudnn as cudnn
-from torch.nn.parallel import DistributedDataParallel as DDP
-
 import sys
 sys.path.remove('/home/lab602.10977014_0n1/.pipeline2/10977014/YOLOX')
 sys.path.append("/home/lab602.10977014_0n1/.pipeline2/10977014/YOLOXt/")
 
+import torch
+import torch.backends.cudnn as cudnn
+from torch.nn.parallel import DistributedDataParallel as DDP
+
 from yolox.core import launch
 from yolox.exp import get_exp
 from yolox.utils import configure_nccl, fuse_model, get_local_rank, get_model_info, setup_logger
+
+# import matplotlib相關套件
+import matplotlib.pyplot as plt
+
+# import字型管理套件
+from matplotlib.font_manager import FontProperties
 
 
 def make_parser():
@@ -36,9 +42,9 @@ def make_parser():
         type=str,
         help="url used to set up distributed training",
     )
-    parser.add_argument("-b", "--batch-size", type=int, default=32, help="batch size")
+    parser.add_argument("-b", "--batch-size", type=int, default=8, help="batch size")
     parser.add_argument(
-        "-d", "--devices", default=None, type=int, help="device for training"
+        "-d", "--devices", default=1, type=int, help="device for training"
     )
     parser.add_argument(
         "--num_machines", default=1, type=int, help="num of node for training"
@@ -53,7 +59,7 @@ def make_parser():
         type=str,
         help="pls input your expriment description file",
     )
-    parser.add_argument("-c", "--ckpt", default="YOLOX_outputs/yolox_s_paper/latest_ckpt.pth", type=str, help="ckpt for eval")
+    parser.add_argument("-c", "--ckpt", default="YOLOX_outputs/yolox_s_paper/", type=str, help="ckpt for eval")
     parser.add_argument("--conf", default=0.001, type=float, help="test conf")
     parser.add_argument("--nms", default=None, type=float, help="test nms threshold")
     parser.add_argument("--tsize", default=None, type=int, help="test img size")
@@ -155,42 +161,121 @@ def main(exp, args, num_gpu):
     model.eval()
 
     if not args.speed and not args.trt:
-        if args.ckpt is None:
-            ckpt_file = os.path.join(file_name, "best_ckpt.pth")
-        else:
-            ckpt_file = args.ckpt
-        logger.info("loading checkpoint from {}".format(ckpt_file))
-        loc = "cuda:{}".format(rank)
-        ckpt = torch.load(ckpt_file, map_location=loc)
-        model.load_state_dict(ckpt["model"])
-        logger.info("loaded checkpoint done.")
+        # if args.ckpt is None:
+        #     ckpt_file = os.path.join(file_name, "best_ckpt.pth")
+        # else:
+        ckpt_root = args.ckpt
 
-    if is_distributed:
-        model = DDP(model, device_ids=[rank])
+    # for ckpt_file in os.listdir(ckpt_root) :
+    
+    path_list = os.listdir(ckpt_root)
+    path_list.sort(key = lambda x: (len(x),x))
 
-    if args.fuse:
-        logger.info("\tFusing model...")
-        model = fuse_model(model)
+    ap_list = []
+    ar_list = []
 
-    if args.trt:
-        assert (
-            not args.fuse and not is_distributed and args.batch_size == 1
-        ), "TensorRT model is not support model fusing and distributed inferencing!"
-        trt_file = os.path.join(file_name, "model_trt.pth")
-        assert os.path.exists(
-            trt_file
-        ), "TensorRT model is not found!\n Run tools/trt.py first!"
-        model.head.decode_in_inference = False
-        decoder = model.head.decode_outputs
-    else:
-        trt_file = None
-        decoder = None
+    epoch_num = 0
+    epoch_name = []
+    
+    for filename in path_list :   
+        if filename[:5] == "epoch" :
+            epoch_num += 10
+            epoch_name.append(epoch_num)
+            ckpt_file = os.path.join(ckpt_root, filename)
+            print(ckpt_file)
+            logger.info("loading checkpoint from {}".format(ckpt_file))
+            loc = "cuda:{}".format(rank)
+            ckpt = torch.load(ckpt_file, map_location=loc)
+            model.load_state_dict(ckpt["model"])
+            logger.info("loaded checkpoint done.")
 
-    # start evaluate
-    *_, summary = evaluator.evaluate(
-        model, is_distributed, args.fp16, trt_file, decoder, exp.test_size
-    )
-    logger.info("\n" + summary)
+            if is_distributed:
+                model = DDP(model, device_ids=[rank])
+
+            if args.fuse:
+                logger.info("\tFusing model...")
+                model = fuse_model(model)
+
+            if args.trt:
+                assert (
+                    not args.fuse and not is_distributed and args.batch_size == 1
+                ), "TensorRT model is not support model fusing and distributed inferencing!"
+                trt_file = os.path.join(file_name, "model_trt.pth")
+                assert os.path.exists(
+                    trt_file
+                ), "TensorRT model is not found!\n Run tools/trt.py first!"
+                model.head.decode_in_inference = False
+                decoder = model.head.decode_outputs
+            else:
+                trt_file = None
+                decoder = None
+
+            # start evaluate
+            *_, summary, ap, ar = evaluator.evaluate(
+                model, is_distributed, args.fp16, trt_file, decoder, exp.test_size
+            )
+
+            print(summary)
+
+            ap_list.append(ap)
+            ar_list.append(ar)
+            logger.info("\n" + summary)
+
+
+ 
+    ap_0 = []
+    ap_1 = []
+    ap_2 = []
+    map = []
+    ar_0 = []
+    ar_1 = []
+    ar_2 = [] 
+
+
+    print(path_list)
+
+    for i in range(len(ap_list)) :
+        ap_0.append(ap_list[i]['0'])
+        ap_1.append(ap_list[i]['1'])
+        ap_2.append(ap_list[i]['2'])
+        map.append((ap_list[i]['0']+ ap_list[i]['1'] + ap_list[i]['2'])/3)
+        ar_0.append(ap_list[i]['0'])
+        ar_1.append(ap_list[i]['1'])
+        ar_2.append(ap_list[i]['2'])
+        # ap_2
+        # ar_0
+        # ar_1
+        # ar_2
+
+    print("===============================")
+    print(path_list)
+    print(map)
+    print("================================")
+
+    plt.figure(figsize=(15,10),dpi=100,linewidth = 2)
+    # plt.plot(epoch_name,ap_0,'s-',color = 'b', label="Car")
+    # plt.plot( epoch_name,ap_1,'o-',color = 'g', label="Pesterian")
+    # plt.plot( epoch_name,ap_2,'x-',color = 'y', label="Cyclist")
+    plt.plot( epoch_name,map,'d-',color = 'r', label="map")
+    plt.title("ap of every epoch", fontsize=30, x=0.5, y=1.03)
+
+    # 设置刻度字体大小
+    plt.xticks(fontsize=20)
+    plt.yticks(fontsize=20)
+
+    # 標示x軸(labelpad代表與圖片的距離)
+    plt.xlabel("epoch", fontsize=30, labelpad = 15)
+
+    # 標示y軸(labelpad代表與圖片的距離)
+    plt.ylabel("ap_per_class(%)", fontsize=30, labelpad = 20)
+
+    # 顯示出線條標記位置
+    plt.legend(loc = "best", fontsize=20)
+
+    plt.savefig('evaluate_output/plot.png')
+
+    
+            
 
 
 if __name__ == "__main__":

@@ -10,7 +10,7 @@ import shutil
 
 import cv2
 import os
-
+from pathlib import Path
 
 def read_txt(txt_path):
     with open(str(txt_path), 'r', encoding='utf-8') as f:
@@ -46,6 +46,8 @@ class YOLOV5ToCOCO(object):
         mkdir(self.dst / self.coco_train)
         mkdir(self.dst / self.coco_val)
         mkdir(self.dst / self.coco_annotation)
+        mkdir(self.dst / Path("trainroad/"))
+        mkdir(self.dst / Path("valroad/"))
 
         # 构建json内容结构
         self.type = 'instances'
@@ -115,22 +117,40 @@ class YOLOV5ToCOCO(object):
             height, width = imgsrc.shape[:2]
 
             dest_file_name = f'{img_id:06d}.jpg'
+            road_file_name = f'{img_id:06d}.png'
+
 
             '''
+
             tempath = os.path.splitext(img_path)[0]
             temp_file_name = tempath.split('/')[-1]
             dest_file_name = f'{temp_file_name}.jpg'
-
             '''
             
             save_img_path = target_img_path / dest_file_name
+
+            print(img_path)
+
+            
+            road_path = str(img_path).replace("images","roadgt")
+            road_path = road_path.replace("jpg","png")
+            target_road_path = str(target_img_path).replace("2017","road")
+            
+
+
+            save_road_path = Path(target_road_path)/road_file_name 
+
             # print(save_img_path)
             # print(dest_file_name)
+            print(road_path)
+            print(save_road_path)
 
             if img_path.suffix.lower() == ".jpg":
                 shutil.copyfile(img_path, save_img_path)
             else:
                 cv2.imwrite(str(save_img_path), imgsrc)
+
+            shutil.copyfile( road_path ,save_road_path)
 
             images.append({
                 'date_captured': '2021',
@@ -217,7 +237,7 @@ class YOLOV5ToCOCO(object):
 if __name__ == "__main__":
     parser = argparse.ArgumentParser('Datasets converter from YOLOV5 to COCO')
     parser.add_argument('--dir_path', type=str,
-                        default='/home/lab602.10977014_0n1/.pipeline2/10977014/YOLOXt/YOLO2COCO/dataset/newz_kitti',
+                        default='/home/lab602.10977014_0n1/.pipeline2/10977014/YOLOXt/YOLO2COCO/dataset/newbdd_2',
                         help='Dataset root path')
     args = parser.parse_args()
 

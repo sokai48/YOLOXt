@@ -32,9 +32,6 @@ def vis(img, boxes, scores, z, cls_ids, conf=0.5, class_names=None ):
         yc = int((y0 + y1) / 2)
 
 
-        print(x0,y0,x1,y1)
-        print(xc,yc)
-
         color = (_COLORS[cls_id] * 255).astype(np.uint8).tolist()
         text = '{}:{:.1f}%'.format(class_names[cls_id], score * 100 )
         text = text + ' {}:{:.1f}m'.format("D",az)

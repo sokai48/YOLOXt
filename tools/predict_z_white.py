@@ -36,7 +36,7 @@ def make_parser():
     parser.add_argument("-n", "--name", type=str, default=None, help="model name")
 
     parser.add_argument(
-        "--path", default="./datasets/bddyolo/train", help="path to images or video"
+        "--path", default="./datasets/bddyolo/white_test", help="path to images or video"
     )
     parser.add_argument("--camid", type=int, default=0, help="webcam demo camera id")
     parser.add_argument(
@@ -63,7 +63,7 @@ def make_parser():
         help="device to run our model, can either be cpu or gpu",
     )
     parser.add_argument("--conf", default=0.02, type=float, help="test conf")
-    parser.add_argument("--nms", default=0.3, type=float, help="test nms threshold")
+    parser.add_argument("--nms", default=0.45, type=float, help="test nms threshold")
     parser.add_argument("--tsize", default=None, type=int, help="test img size")
     parser.add_argument(
         "--fp16",
@@ -266,6 +266,39 @@ def plot_box_z(boxes, img, color=None , line_thickness=None):
     # print("the num of gt :" + str(len(boxes)))
     # cv2.imwrite("./datasets/add_z.jpg", img)
 
+def plot_box_new(boxes, img, name, color=None , line_thickness=None):
+
+
+    height, width, _ = img.shape 
+
+    for i in range(len(boxes)) :
+        box = boxes[i]
+        
+        
+        x_center = float(box[1]) * width
+        y_center = float(box[2]) * height
+        w = float(box[3]) * width 
+        h = float(box[4]) * height
+
+
+
+        x0 = round(x_center-w/2)
+        y0 = round(y_center-h/2)
+        x1 = round(x_center+w/2)
+        y1 = round(y_center+h/2)
+
+        z = float(box[5])
+        text = ' {}:{:.1f}m'.format("D",z)
+        txt_size = cv2.getTextSize(text, cv2.FONT_HERSHEY_SIMPLEX, 0.4, 1)[0]
+        cv2.putText(img, text, (x0, y0 + txt_size[1]), cv2.FONT_HERSHEY_SIMPLEX, 0.4, (0,0,255), thickness=1)
+
+        
+        tl = line_thickness or round(0.0001 * (img.shape[0] + img.shape[1]) / 2) + 1  # line/font thicknesss
+        # color = color or [random.randint(0, 255) for _ in range(3)]
+        color = (0,128,0)
+        c1, c2 = (x0-5,y0-5), (x1-3,y1-3)
+        cv2.rectangle(img, c1, c2, (0,0,255), thickness=2, lineType=cv2.LINE_AA)
+
 
 
 def plot_box(boxes, img, name, color=None , line_thickness=None):
@@ -282,6 +315,8 @@ def plot_box(boxes, img, name, color=None , line_thickness=None):
         w = float(box[3]) * width 
         h = float(box[4]) * height
 
+
+
         x0 = round(x_center-w/2)
         y0 = round(y_center-h/2)
         x1 = round(x_center+w/2)
@@ -293,6 +328,7 @@ def plot_box(boxes, img, name, color=None , line_thickness=None):
         color = (0,128,0)
         c1, c2 = (x0,y0), (x1,y1)
         cv2.rectangle(img, c1, c2, color, thickness=tl, lineType=cv2.LINE_AA)
+        cv2.circle(img, (int(x_center),int(y_center)), 5, color,  0 )
 
     # cv2.imwrite("datasets/visualonpaper/output/{}.jpg".format(name), img)
 
@@ -316,6 +352,7 @@ def plot_box2(boxes, img, color=None , line_thickness=None):
         color = (255,0,0)
         c1, c2 = (int(x0),int(y0)), (int(x1),int(y1))
         cv2.rectangle(img, c1, c2, color, thickness=tl, lineType=cv2.LINE_AA)
+        cv2.circle(img, (int((x0+x1)/2),int((y0+y1)/2)), 5, color,  0 )
 
     # print("the num of pred :" + str(len(boxes)))
 
@@ -376,8 +413,11 @@ def add_z(img, gt_labels, predict, match_num, current, total, image_name, name) 
     print("current_image/total_iamge : {}/{}".format(current,total))
     print("the num of gt/the num of pred : {}/{} ".format(len(gt_labels), len(predict)))
 
+    newgt_labels = []
+    temp = []
 
-    if ( miss_num <= 2 ) :
+
+    if ( len(predict) > 0 ) :
 
         match_num += 1
 
@@ -386,21 +426,22 @@ def add_z(img, gt_labels, predict, match_num, current, total, image_name, name) 
         print("-----------------------------------------------------------")
 
         i = 0
+        for i in range(len(predict)) :
+        # for i in range(len(gt_list)) : 
+            pr = predict[i]
+            prcenter = (pr[0]+pr[2]) / 2, (pr[1]+pr[3]) / 2 
+            
 
-        for i in range(len(gt_list)) : 
-
-            gt = gt_list[i]
-
-            gtcenter = ((gt[0]+gt[2]) / 2, (gt[1]+gt[3]) / 2 )
-
-            # print(gtcenter)
+            # print(prcenter)
 
             j = 0
+            for j in range(len(gt_list)) : 
+            # for j in range(len(predict)) :
+                
+                gt = gt_list[j]
 
-            for j in range(len(predict)) :
+                gtcenter = ((gt[0]+gt[2]) / 2, (gt[1]+gt[3]) / 2 )
 
-                pr = predict[j]
-                prcenter = (pr[0]+pr[2]) / 2, (pr[1]+pr[3]) / 2 
 
                 distance = dist(gtcenter,prcenter)
 
@@ -420,20 +461,52 @@ def add_z(img, gt_labels, predict, match_num, current, total, image_name, name) 
                         # print(nearest)
                         # print(j)
                         # print(match)
-                
-            gt_labels[i].append(str(predict[match][4])+ "\n")
+            
+            if (nearest< 120 ) :
+                # gt_labels[j].append(str(gt_list[match][4])+ "\n")
+                temp = gt_labels[match][:5]
+                temp.append(str(abs(predict[i][4]))+ "\n")
+                # newgt_labels.append(str(gt_labels[match][:5]))
+                # newgt_labels.append(str(predict[i][4])+ "\n")
+                # print(newgt_labels)
+                newgt_labels.append(temp)
+                print(newgt_labels)
+                print("Nearstest : {} ".format(nearest))
+                gt_list[match][4] = True
+            
+
+        #draw white mask for missing car 
+        i = 0
+        for i in range(len(gt_list)) : 
+            gt = gt_list[i]
+            if (gt[4] == False ) :
+                cv2.rectangle(img, (gt[0],gt[1]), (gt[2],gt[3]), color=(255,255,255), thickness= -2)
+
+
+
+        #draw gt to show 
+
+
+        
+        plot_box_new(newgt_labels, img, name )
+
+        plot_box(gt_labels, img, name)
+
+        plot_box2(predict, img )
+
+
 
         #新建一個txt
-        with open('datasets/newbdd_2/{}.txt'.format(name), 'w') as f:
-            for i in range(len(gt_labels)) :
+        with open('datasets/white/{}.txt'.format(name), 'w') as f:
+            for i in range(len(newgt_labels)) :
 
-                for j in range(len(gt_labels[i])) :
+                for j in range(len(newgt_labels[i])) :
 
-                    f.write(gt_labels[i][j] )
+                    f.write(newgt_labels[i][j] )
                     if( j != 5 ) :
                         f.write(" ")
-
-        shutil.copyfile(image_name, 'datasets/newbdd_2/{}.jpg'.format(name))
+        cv2.imwrite('datasets/white/{}.jpg'.format(name), img)
+        # shutil.copyfile(image_name, 'datasets/white/{}.jpg'.format(name))
 
 
         # print(gt_labels)

@@ -16,7 +16,6 @@ import numpy as np
 
 import torch
 
-
 from yolox.data.datasets import COCO_CLASSES
 from yolox.utils import (
     gather,
@@ -27,31 +26,6 @@ from yolox.utils import (
     xyxy2xywh
 )
 
-# from yolox.utils.metric2 import ConfusionMatrix,ap_per_class,box_iou
-
-# def process_batch(detections, labels, iouv):
-#     """
-#     Return correct predictions matrix. Both sets of boxes are in (x1, y1, x2, y2) format.
-#     Arguments:
-#         detections (Array[N, 6]), x1, y1, x2, y2, conf, class
-#         labels (Array[M, 5]), class, x1, y1, x2, y2
-#     Returns:
-#         correct (Array[N, 10]), for 10 IoU levels
-#     """
-#     correct = torch.zeros(detections.shape[0], iouv.shape[0], dtype=torch.bool, device=iouv.device)
-#     iou = box_iou(labels[:, 1:], detections[:, :4])
-#     correct_class = labels[:, 0:1] == detections[:, 5]
-#     for i in range(len(iouv)):
-#         x = torch.where((iou >= iouv[i]) & correct_class)  # IoU > threshold and classes match
-#         if x[0].shape[0]:
-#             matches = torch.cat((torch.stack(x, 1), iou[x[0], x[1]][:, None]), 1).cpu().numpy()  # [label, detect, iou]
-#             if x[0].shape[0] > 1:
-#                 matches = matches[matches[:, 2].argsort()[::-1]]
-#                 matches = matches[np.unique(matches[:, 1], return_index=True)[1]]
-#                 # matches = matches[matches[:, 2].argsort()[::-1]]
-#                 matches = matches[np.unique(matches[:, 0], return_index=True)[1]]
-#             correct[matches[:, 1].astype(int), i] = True
-#     return correct
 
 def per_class_AR_table(coco_eval, class_names=COCO_CLASSES, headers=["class", "AR"], colums=6):
     per_class_AR = {}
@@ -73,7 +47,7 @@ def per_class_AR_table(coco_eval, class_names=COCO_CLASSES, headers=["class", "A
     table = tabulate(
         row_pair, tablefmt="pipe", floatfmt=".3f", headers=table_headers, numalign="left",
     )
-    return table, per_class_AR
+    return table
 
 
 def per_class_AP_table(coco_eval, class_names=COCO_CLASSES, headers=["class", "AP"], colums=6):
@@ -81,7 +55,6 @@ def per_class_AP_table(coco_eval, class_names=COCO_CLASSES, headers=["class", "A
     precisions = coco_eval.eval["precision"]
     # dimension of precisions: [TxRxKxAxM]
     # precision has dims (iou, recall, cls, area range, max dets)
-    # print(precisions)
     assert len(class_names) == precisions.shape[2]
 
     for idx, name in enumerate(class_names):
@@ -93,15 +66,13 @@ def per_class_AP_table(coco_eval, class_names=COCO_CLASSES, headers=["class", "A
         per_class_AP[name] = float(ap * 100)
 
     num_cols = min(colums, len(per_class_AP) * len(headers))
-    result_pair = [x for pair in per_class_AP.items() for x in pair] 
+    result_pair = [x for pair in per_class_AP.items() for x in pair]
     row_pair = itertools.zip_longest(*[result_pair[i::num_cols] for i in range(num_cols)])
     table_headers = headers * (num_cols // len(headers))
     table = tabulate(
         row_pair, tablefmt="pipe", floatfmt=".3f", headers=table_headers, numalign="left",
     )
-
-
-    return table, per_class_AP
+    return table
 
 
 class COCOEvaluator:
@@ -189,37 +160,9 @@ class COCOEvaluator:
             model(x)
             model = model_trt
 
-        #from v5 https://zhuanlan.zhihu.com/p/499759736
-        # iouv = torch.linspace(0.5, 0.95, 10, device='cpu')
-        # niou = iouv.numel()
-        # confusion_matrix = ConfusionMatrix(nc=self.num_classes)
-        # stats=[]
-        # seen=0
-        # names=["Car","Pedestrian","Cyclist"] #类名
-        # names_dic=dict(enumerate(names)) #类名字典
-        # # print(names_dic)
-        # s = ('\n%20s' + '%11s' * 6) % ('Class', 'Images', 'Labels', 'P', 'R', 'mAP@.5', 'mAP@.5:.95')    
-        # save_dir="evaluate_output"]
-        #from v5 https://zhuanlan.zhihu.com/p/499759736
-        """
-        from yolox.evaluators.evaluate import ConfusionMatrix,SegmentationMetric
-        da_metric = SegmentationMetric(self.seg_cls) #segment confusion matrix 
-        da_acc_seg = AverageMeter()
-        da_IoU_seg = AverageMeter()
-        da_mIoU_seg = AverageMeter()
-        """
-
-        # print(enumerate(progress_bar(self.dataloader)))
-        # print(self.dataloader.dataset.coco)
         for cur_iter, (imgs, _, info_imgs, ids) in enumerate(
             progress_bar(self.dataloader)
         ):
-            # print(imgs.shape)
-
-            # print(info_imgs)
-
-            # print(ids)
-
             with torch.no_grad():
                 imgs = imgs.type(tensor_type)
 
@@ -243,50 +186,7 @@ class COCOEvaluator:
                     nms_end = time_synchronized()
                     nms_time += nms_end - infer_end
 
-                # print(outputs)
-
             data_list.extend(self.convert_to_coco_format(outputs, info_imgs, ids))
-
-            """
-            #driving area segment evaluation
-            _,da_predict=torch.max(seg_outputs, 1)
-            _,da_gt=torch.max(target[1], 1)
-            da_predict = da_predict[:, pad_h:height-pad_h, pad_w:width-pad_w]
-            da_gt = da_gt[:, pad_h:height-pad_h, pad_w:width-pad_w]
-
-            da_metric.reset()
-            da_metric.addBatch(da_predict.cpu(), da_gt.cpu())
-            da_acc = da_metric.pixelAccuracy()
-            da_IoU = da_metric.IntersectionOverUnion()
-            da_mIoU = da_metric.meanIntersectionOverUnion()
-
-            da_acc_seg.update(da_acc,imgs.size(0))
-            da_IoU_seg.update(da_IoU,imgs.size(0))
-            da_mIoU_seg.update(da_mIoU,imgs.size(0))      
-
-            """      
-
-            #from v5 https://zhuanlan.zhihu.com/p/499759736
-            # for _id,out in zip(ids,outputs):
-            #     seen += 1
-            #     gtAnn=self.dataloader.dataset.coco.imgToAnns[int(_id)]
-            #     tcls=[(((its["category_id"])-1))for its in gtAnn]
-            #     print(tcls)
-            #     if out==None: 
-            #         stats.append((torch.zeros(0, niou, dtype=torch.bool), torch.Tensor(), torch.Tensor(), tcls))
-            #         continue
-            #     else:
-            #         gt=torch.tensor([[(its['category_id'])]+its['clean_bbox'] for its in gtAnn])
-            #         dt=out.cpu().numpy()
-            #         # print(dt)
-            #         dt[:,5]=dt[:,5]*dt[:,6]
-            #         dt[:,6]=dt[:,7]
-            #         dt=torch.from_numpy(np.delete(dt,-1,axis=1))#share mem
-            #         confusion_matrix.process_batch(dt, gt)
-            #         correct = process_batch(dt, gt, iouv)
-            #         stats.append((correct, dt[:, 5], dt[:, 6], tcls))
-            #from v5 https://zhuanlan.zhihu.com/p/499759736
-
 
         statistics = torch.cuda.FloatTensor([inference_time, nms_time, n_samples])
         if distributed:
@@ -296,23 +196,6 @@ class COCOEvaluator:
 
         eval_results = self.evaluate_prediction(data_list, statistics)
         synchronize()
-
-        #from v5 https://zhuanlan.zhihu.com/p/499759736
-        # stats = [np.concatenate(x, 0) for x in zip(*stats)]
-        # tp, fp, p, r, f1, ap, ap_class =ap_per_class(*stats, plot=True, save_dir=save_dir, names=names_dic)
-        # confusion_matrix.plot(save_dir=save_dir, names=names)
-        # ap50, ap = ap[:, 0], ap.mean(1)  # AP@0.5, AP@0.5:0.95
-        # mp, mr, map50, map = p.mean(), r.mean(), ap50.mean(), ap.mean()
-        # nt = np.bincount(stats[3].astype(np.int64), minlength=self.num_classes)
-        # pf = '\n%20s' + '%11i'  *2 + '%11.3g' * 4  # print format
-        # s+=pf % ('all',seen, nt.sum(), mp, mr, map50, map)
-        # for i, c in enumerate(ap_class):
-        #     s+=pf % (names[c],seen, nt[c], p[i], r[i], ap50[i], ap[i])
-        # logger.info(s)
-        #from v5 https://zhuanlan.zhihu.com/p/499759736
-
-        # print(eval_results)
-
         return eval_results
 
     def convert_to_coco_format(self, outputs, info_imgs, ids):
@@ -395,10 +278,6 @@ class COCOEvaluator:
 
                 logger.warning("Use standard COCOeval.")
 
-
-
-    
-
             cocoEval = COCOeval(cocoGt, cocoDt, annType[1])
             cocoEval.evaluate()
             cocoEval.accumulate()
@@ -409,42 +288,11 @@ class COCOEvaluator:
             cat_ids = list(cocoGt.cats.keys())
             cat_names = [cocoGt.cats[catId]['name'] for catId in sorted(cat_ids)]
             if self.per_class_AP:
-                AP_table, AP_per_class = per_class_AP_table(cocoEval, class_names=cat_names)
+                AP_table = per_class_AP_table(cocoEval, class_names=cat_names)
                 info += "per class AP:\n" + AP_table + "\n"
             if self.per_class_AR:
-                AR_table, AR_per_class = per_class_AR_table(cocoEval, class_names=cat_names)
+                AR_table = per_class_AR_table(cocoEval, class_names=cat_names)
                 info += "per class AR:\n" + AR_table + "\n"
-
-            # print(AP_table["class"])
-            # print(AP_table)
-            # print(cocoEval.stats[0], cocoEval.stats[1], info)
-            # print("===============")
-            # print(cocoEval.stats)
-            # print("--------------")
-            # print(info)
-
-
-            return cocoEval.stats[0], cocoEval.stats[1], info, AP_per_class, AR_per_class
-            # return cocoEval.stats[0], cocoEval.stats[1], info 
+            return cocoEval.stats[0], cocoEval.stats[1], info
         else:
-            return 0, 0, info, [], []
-            # return 0, 0, info
-           
-
-
-class AverageMeter(object):
-    """Computes and stores the average and current value"""
-    def __init__(self):
-        self.reset()
-
-    def reset(self):
-        self.val = 0
-        self.avg = 0
-        self.sum = 0
-        self.count = 0
-
-    def update(self, val, n=1):
-        self.val = val
-        self.sum += val * n
-        self.count += n
-        self.avg = self.sum / self.count if self.count != 0 else 0
+            return 0, 0, info

@@ -6,23 +6,23 @@ import argparse
 import os
 import time
 from loguru import logger
+import sys
+
+from matplotlib.pyplot import draw_if_interactive
+sys.path.remove('/home/lab602.10977014_0n1/.pipeline2/10977014/YOLOX')
+sys.path.append("/home/lab602.10977014_0n1/.pipeline2/10977014/YOLOXt/")
 
 import cv2
 
 import torch
-
-import sys
-sys.path.remove('/home/lab602.10977014_0n1/.pipeline2/10977014/YOLOX')
-sys.path.append("/home/lab602.10977014_0n1/.pipeline2/10977014/YOLOXt/")
-
+import numpy as np
 from yolox.data.data_augment import ValTransform
 from yolox.data.datasets import COCO_CLASSES
 from yolox.exp import get_exp
-from yolox.utils import fuse_model, get_model_info, postprocess, vis
+from yolox.utils import fuse_model, get_model_info, postprocess, vis, vis_z
+import torchvision.transforms as transforms
+from yolox.data import COCODataset
 import math
-import numpy as np
-import shutil
-
 
 IMAGE_EXT = [".jpg", ".jpeg", ".webp", ".bmp", ".png"]
 
@@ -36,12 +36,12 @@ def make_parser():
     parser.add_argument("-n", "--name", type=str, default=None, help="model name")
 
     parser.add_argument(
-        "--path", default="./datasets/bddyolo/train", help="path to images or video"
+        "--path", default="datasets/bddseg/val2017", help="path to images or video"
     )
     parser.add_argument("--camid", type=int, default=0, help="webcam demo camera id")
     parser.add_argument(
         "--save_result",
-        default=None,
+        default=False,
         action="store_true",
         help="whether to save the inference result of image/video",
     )
@@ -50,20 +50,20 @@ def make_parser():
     parser.add_argument(
         "-f",
         "--exp_file",
-        default="exps/example/custom/yolox_x_newz.py",
+        default="exps/example/custom/yolox_s.py",
         type=str,
         help="pls input your experiment description file",
     )
-    # YOLOX_outputs/yolox_s_300epoch/latest_ckpt.pth
-    parser.add_argument("-c", "--ckpt", default="YOLOX_outputs/yolox_x_newz/best_ckpt.pth", type=str, help="ckpt for eval")
+    ###############################################################記得修改下面的解析度 
+    parser.add_argument("-c", "--ckpt", default="YOLOX_outputs/yolox_s_paper/latest_ckpt.pth", type=str, help="ckpt for eval")
     parser.add_argument(
         "--device",
         default="gpu",
         type=str,
         help="device to run our model, can either be cpu or gpu",
     )
-    parser.add_argument("--conf", default=0.02, type=float, help="test conf")
-    parser.add_argument("--nms", default=0.3, type=float, help="test nms threshold")
+    parser.add_argument("--conf", default=0.1, type=float, help="test conf")
+    parser.add_argument("--nms", default=0.1, type=float, help="test nms threshold")
     parser.add_argument("--tsize", default=None, type=int, help="test img size")
     parser.add_argument(
         "--fp16",
@@ -109,6 +109,71 @@ def get_image_list(path):
     return image_names, only_names
 
 
+def load_cocodataset() :
+
+    data = COCODataset(
+        data_dir="datasets/bddseg",
+        json_file="instances_val2017.json",
+        name="val2017",
+        # img_size=(288, 512),
+        img_size=(576, 1024),
+        preproc=None,
+        cache=False,
+    )
+    return data
+
+def get_image_gt(image_names, data) :
+    
+    # res, img_info, resized_info, file_name = data.pull_item(image_names)
+    # print(data.json_file)
+    # res, img_info, resized_info, _ = data.annotations[image_names-1]
+    res, img_info, resized_info, file_name =data.load_anno_from_ids(int(image_names))
+    # print("img_info" +str(img_info))
+    # print("-------get_image_gt---------")
+    # print(res)
+    # print("-------get_image_gt---------")
+    return res
+
+
+# class AverageMeter(object):
+#     """Computes and stores the average and current value"""
+#     def __init__(self):
+#         self.reset()
+
+#     def reset(self):
+#         self.val = 0
+#         self.avg = 0
+#         self.sum = 0
+#         self.count = 0
+
+#     def update(self, val, n=1):
+#         self.val = val
+#         self.sum += val * n
+#         self.count += n
+#         self.avg = self.sum / self.count if self.count != 0 else 0
+
+
+class AverageMeter_forz(object):
+
+    """Computes and stores the average and current value"""
+    def __init__(self):
+        self.reset()
+
+    def reset(self):
+        self.val = 0
+        self.avg = 0
+        self.sum = 0
+        self.count = 0
+
+    def update(self, val, n=1):
+        self.val = val
+        self.sum += val 
+        self.count += n
+        self.avg = self.sum / self.count if self.count != 0 else 0
+
+
+
+
 class Predictor(object):
     def __init__(
         self,
@@ -150,17 +215,25 @@ class Predictor(object):
             img_info["file_name"] = None
 
 
+
         height, width = img.shape[:2]
         img_info["height"] = height
         img_info["width"] = width
         img_info["raw_img"] = img
 
         ratio = min(self.test_size[0] / img.shape[0], self.test_size[1] / img.shape[1])
+
+    
         img_info["ratio"] = ratio
 
-        img, _ = self.preproc(img, None, self.test_size)
+
+   
+        img, _ = self.preproc(img, None, self.test_size )
+
+
         img = torch.from_numpy(img).unsqueeze(0)
         img = img.float()
+
         if self.device == "gpu":
             img = img.cuda()
             if self.fp16:
@@ -168,137 +241,104 @@ class Predictor(object):
 
         with torch.no_grad():
             t0 = time.time()
-            outputs = self.model(img)
-            if self.decoder is not None:
+            outputs= self.model(img)
+
+            if self.decoder is not None:  # None
                 outputs = self.decoder(outputs, dtype=outputs.type())
             outputs = postprocess(
                 outputs, self.num_classes, self.confthre,
                 self.nmsthre, class_agnostic=True
             )
             logger.info("Infer time: {:.4f}s".format(time.time() - t0))
-
-
         return outputs, img_info
-        
 
     def visual(self, output, img_info, cls_conf=0.35):
         ratio = img_info["ratio"]
         img = img_info["raw_img"]
         if output is None:
-            return img
+            return img 
         output = output.cpu()
-
         bboxes = output[:, 0:4]
 
+
         # preprocessing: resize
-        bboxes /= ratio
-
-
-        cls = output[:, 7]
-
-        # print("-------------------")
-        # print(cls)
-        # print("-------------------")
-        z = output[:,4]
-        scores = output[:, 5] * output[:, 6]
-
-
-        list_boxes = bboxes.tolist()
-        list_z = z.tolist()
-        i = 0 
-        for i in range(len(list_boxes)) :
-            list_boxes[i].append(list_z[i])
-
+        #(640,384) -> (1280,720)
 
         
-            
-        vis_res = vis(img, bboxes, scores, z, cls, cls_conf, self.cls_names)
+        # print(ratio)
+        bboxes /= ratio
 
-        return vis_res, list_boxes
-
-
-
-def plot_box_z(boxes, img, color=None , line_thickness=None):
+        
 
 
-    height, width, _ = img.shape 
+        z = output[:,4]
+        cls = output[:, 7]
+        scores = output[:, 5] * output[:, 6]
+
+        # img_id = img_info["file_name"].split('.')[0]        
+        # gt = get_image_gt(int(img_id)) 
+        vis_res = vis(img, bboxes, scores, z ,cls, cls_conf, self.cls_names )
+
+
+        # gt_bboxes = gt[:, 0:4]
+        # gt_bboxes /= ratio
+        # gt_z = gt[:,4]
+        # vis_res_gt = vis_z(vis_res,gt_bboxes,gt_z)
+
+        return vis_res
+        # return vis_res_gt , seg_mask
+
+
+
+def transfer_outputbox( boxes, z ) :
+
+
+    addz_boxes = []
+
+    z = z.numpy()
     
 
     for i in range(len(boxes)) :
         box = boxes[i]
-        
-        
-        x_center = float(box[1]) * width
-        y_center = float(box[2]) * height
-        w = float(box[3]) * width 
-        h = float(box[4]) * height
-
-
-        x0 = round(x_center-w/2)
-        y0 = round(y_center-h/2)
-        x1 = round(x_center+w/2)
-        y1 = round(y_center+h/2)
-        az = float(box[5])
-        text = ' {}:{:.1f}m'.format("D",az)
-        font = cv2.FONT_HERSHEY_SIMPLEX
-        txt_size = cv2.getTextSize(text, font,0.4, 1)[0]
-
-        
-        tl = line_thickness or round(0.0001 * (img.shape[0] + img.shape[1]) / 2) + 1  # line/font thicknesss
-        # color = color or [random.randint(0, 255) for _ in range(3)]
-        color = (0,128,0)
-        c1, c2 = (x0,y0), (x1,y1)
-        cv2.rectangle(img, c1, c2, color, thickness=tl, lineType=cv2.LINE_AA)
-
-        blk = np.zeros(img.shape, np.uint8)  
-        cv2.rectangle(
-            blk,
-            (x1-1, y1),
-            (x1 - int(txt_size[0]), y1 - txt_size[1] - 1),
-            (0,255,0),
-            -1
-        )
-        img = cv2.addWeighted(img, 1.0, blk, 0.5, 1)
-
-        # cv2.putText(img, text, (x0, y0 + txt_size[1]), font, 0.4, txt_color, thickness=1)
-        cv2.putText(img, text, (x1 - txt_size[0], y1), font, 0.4, (255,255,255), thickness=1)
-
-    # print("the num of gt :" + str(len(boxes)))
-    # cv2.imwrite("./datasets/add_z.jpg", img)
+        x0 = box[0]
+        y0 = box[1]
+        x1 = box[2]
+        y1 = box[3]
+        z0 = z[i]
 
 
 
-def plot_box(boxes, img, name, color=None , line_thickness=None):
+        addz_boxes.append([int(x0), int(y0), int(x1), int(y1), z0])
 
 
-    height, width, _ = img.shape 
+    return addz_boxes
 
+def transfer_gtbox(boxes) :
+
+ 
+
+    new_boxes = []
     for i in range(len(boxes)) :
         box = boxes[i]
-        
-        
-        x_center = float(box[1]) * width
-        y_center = float(box[2]) * height
-        w = float(box[3]) * width 
-        h = float(box[4]) * height
 
-        x0 = round(x_center-w/2)
-        y0 = round(y_center-h/2)
-        x1 = round(x_center+w/2)
-        y1 = round(y_center+h/2)
+        x0 = float(box[0]) 
+        y0 = float(box[1]) 
+        x1 = float(box[2]) 
+        y1 = float(box[3])
+        z = float(box[4])
 
-        
-        tl = line_thickness or round(0.0001 * (img.shape[0] + img.shape[1]) / 2) + 1  # line/font thicknesss
-        # color = color or [random.randint(0, 255) for _ in range(3)]
-        color = (0,128,0)
-        c1, c2 = (x0,y0), (x1,y1)
-        cv2.rectangle(img, c1, c2, color, thickness=tl, lineType=cv2.LINE_AA)
 
-    # cv2.imwrite("datasets/visualonpaper/output/{}.jpg".format(name), img)
+        new_boxes.append([int(x0), int(y0), int(x1), int(y1), z])
 
-    # print("the num of gt :" + str(len(boxes)))
+    
+    return new_boxes
 
-def plot_box2(boxes, img, color=None , line_thickness=None):
+
+
+
+
+
+def plot_box(boxes, img, color=None , line_thickness=None):
 
  
     height, width, _ = img.shape 
@@ -313,189 +353,112 @@ def plot_box2(boxes, img, color=None , line_thickness=None):
         
         tl = line_thickness or round(0.0001 * (img.shape[0] + img.shape[1]) / 2) + 1  # line/font thicknesss
         # color = color or [random.randint(0, 255) for _ in range(3)]
-        color = (255,0,0)
+        # color = (255,0,0)
         c1, c2 = (int(x0),int(y0)), (int(x1),int(y1))
         cv2.rectangle(img, c1, c2, color, thickness=tl, lineType=cv2.LINE_AA)
 
-    # print("the num of pred :" + str(len(boxes)))
+    # cv2.imwrite("./datasets/gtimg.jpg", img)
+
+
+    return img
 
 def dist(p1,p2):
     return math.sqrt(((p1[0]-p2[0])**2)+((p1[1]-p2[1])**2) )
 
-
-def transfer_gt( img, boxes ) :
-
-
-    height, width, _ = img.shape 
-
-    resized_boxes = []
-    
-
-    for i in range(len(boxes)) :
-        box = boxes[i]
-        
-        
-        x_center = float(box[1]) * width
-        y_center = float(box[2]) * height
-        w = float(box[3]) * width 
-        h = float(box[4]) * height
-
-        x0 = round(x_center-w/2)
-        y0 = round(y_center-h/2)
-        x1 = round(x_center+w/2)
-        y1 = round(y_center+h/2)
-
-        resized_boxes.append([int(x0), int(y0), int(x1), int(y1), False])
-
-
-    return resized_boxes
+def image_demo(predictor, vis_folder, path, current_time, save_result ):
 
 
 
-def add_z(img, gt_labels, predict, match_num, current, total, image_name, name) :
-
-    
-    # ratio = img_info["ratio"]
-    # img = img_info["raw_img"]
-
-    miss_num = len(gt_labels) - len(predict)
-
-    # plot_box(gt_labels, img, name )
-
-    # plot_box2(predict, img )
-
-    # cv2.imwrite("./datasets/merge.jpg", img)
-
-    gt_list = transfer_gt(img,gt_labels)
-    # print("============================")
-    # print(gt_list)
-    # print("-----------------------------")
-    # print(predict)
-    # print("============================")
-
-    print("current_image/total_iamge : {}/{}".format(current,total))
-    print("the num of gt/the num of pred : {}/{} ".format(len(gt_labels), len(predict)))
+    data = load_cocodataset()
 
 
-    if ( miss_num <= 2 ) :
+    z_deviation = AverageMeter_forz()
 
-        match_num += 1
-
-        print("match_sum : {}".format(match_num )  )
-
-        print("-----------------------------------------------------------")
-
-        i = 0
-
-        for i in range(len(gt_list)) : 
-
-            gt = gt_list[i]
-
-            gtcenter = ((gt[0]+gt[2]) / 2, (gt[1]+gt[3]) / 2 )
-
-            # print(gtcenter)
-
-            j = 0
-
-            for j in range(len(predict)) :
-
-                pr = predict[j]
-                prcenter = (pr[0]+pr[2]) / 2, (pr[1]+pr[3]) / 2 
-
-                distance = dist(gtcenter,prcenter)
-
-                if j == 0 :
-                    nearest = distance
-                    match = j 
-                    # print("----0-----")
-                    # print(nearest)
-                    # print(j)
-                    # print(match)
-
-                else :
-                    if ( distance < nearest ) :
-                        nearest = distance
-                        match = j 
-                        # print("----------")
-                        # print(nearest)
-                        # print(j)
-                        # print(match)
-                
-            gt_labels[i].append(str(predict[match][4])+ "\n")
-
-        #新建一個txt
-        with open('datasets/newbdd_2/{}.txt'.format(name), 'w') as f:
-            for i in range(len(gt_labels)) :
-
-                for j in range(len(gt_labels[i])) :
-
-                    f.write(gt_labels[i][j] )
-                    if( j != 5 ) :
-                        f.write(" ")
-
-        shutil.copyfile(image_name, 'datasets/newbdd_2/{}.jpg'.format(name))
-
-
-        # print(gt_labels)
-        # plot_box_z(gt_labels, img )
-
-                
-    
-
-
-    return match_num
-
-
-def image_demo(predictor, vis_folder, path, current_time, save_result):
     if os.path.isdir(path):
         files, names = get_image_list(path)
     else:
         files = [path]
-    files.sort()
+    files.sort() 
     names.sort()
-    total = len(names)
-    current = 0
-    match_num = 0
     for image_name, name in zip(files, names):
 
-        current += 1
-
-        # print(image_name)
-        # print(name)
 
 
-        gt_label = []
-        gt_path = path + "/" + name + ".txt"
-
-        f = None
-        try:
-            f = open(gt_path, 'r')
-            for line in f.readlines():
-                # line.replace("\n", "")
-                # print(line)
-                line = line.strip('\n')
-                gt_label.append(line.split(" "))
-                
-        except IOError:
-            print('ERROR: can not found ' + gt_path)
-            if f:
-                f.close()
-        finally:
-            if f:
-                f.close()
 
 
         outputs, img_info = predictor.inference(image_name)
-        print(image_name)
 
 
-        if outputs != [None] :        
-            img_z = img_info["raw_img"].copy()
-            result_image, predict = predictor.visual(outputs[0], img_info, predictor.confthre)
+        
+        result_image = predictor.visual(outputs[0], img_info,
+                                        predictor.confthre)
 
 
-            #在bdd dataset上加上我所偵測的z值
-            match_num = add_z(img_z , gt_label, predict, match_num, current, total, image_name, name )
+
+        
+
+        if (outputs[0] != None) :
+            # z depth evalutaion 
+            res = get_image_gt(name, data)
+            ratio = img_info["ratio"]
+            output_z = outputs[0].cpu()
+            bboxes = output_z[:, 0:4]/ratio
+            zs = output_z[:,4]
+            res[:,:4] = res[:,:4] / ratio
+            
+            addbox = transfer_outputbox( bboxes, zs )
+            # print(addbox)
+            addres =transfer_gtbox( res )
+            # print(addres)
+            all_zoff = 0
+
+            z_sum = len(addbox)
+            for i in range(len(addbox)) : 
+
+                pr = addbox[i]
+                prcenter = (pr[0]+pr[2]) / 2, (pr[1]+pr[3]) / 2 
+
+                # print(gtcenter)
+
+                j = 0
+
+                for j in range(len(addres)) :
+
+                    gt = addres[j]
+
+                    gtcenter = ((gt[0]+gt[2]) / 2, (gt[1]+gt[3]) / 2 )
+
+                    distance = dist(gtcenter,prcenter)
+                    if j == 0 :
+                        nearest = distance
+                        match = j 
+                        # print("----0-----")
+                        # print(nearest)
+                        # print(j)
+                        # print(match)
+
+                    else :
+                        if ( distance < nearest ) :
+                            nearest = distance
+                            match = j 
+                            # print("----------")
+                            # print(nearest)
+                            # print(j)
+                            # print(match)
+                
+
+                z_off = abs(addres[match][4] - pr[4])
+
+                all_zoff += z_off
+
+                print("z_sum : {}".format(z_sum))
+                print("z_off : {}".format(z_off))
+                    
+
+            z_deviation.update(all_zoff, z_sum)
+
+
+
 
 
 
@@ -508,9 +471,18 @@ def image_demo(predictor, vis_folder, path, current_time, save_result):
             save_file_name = os.path.join(save_folder, os.path.basename(image_name))
             logger.info("Saving detection result in {}".format(save_file_name))
             cv2.imwrite(save_file_name, result_image)
+
+
+
+
         ch = cv2.waitKey(0)
         if ch == 27 or ch == ord("q") or ch == ord("Q"):
             break
+
+
+    print("z_deviation.avg : {}".format(z_deviation.avg))
+    print("z_deviation.sum : {}".format(z_deviation.sum))
+    
 
 
 def imageflow_demo(predictor, vis_folder, current_time, args):
@@ -518,29 +490,28 @@ def imageflow_demo(predictor, vis_folder, current_time, args):
     width = cap.get(cv2.CAP_PROP_FRAME_WIDTH)  # float
     height = cap.get(cv2.CAP_PROP_FRAME_HEIGHT)  # float
     fps = cap.get(cv2.CAP_PROP_FPS)
-    if args.save_result:
-        save_folder = os.path.join(
-            vis_folder, time.strftime("%Y_%m_%d_%H_%M_%S", current_time)
-        )
-        os.makedirs(save_folder, exist_ok=True)
-        if args.demo == "video":
-            save_path = os.path.join(save_folder, os.path.basename(args.path))
-        else:
-            save_path = os.path.join(save_folder, "camera.mp4")
-        logger.info(f"video save_path is {save_path}")
-        vid_writer = cv2.VideoWriter(
-            save_path, cv2.VideoWriter_fourcc(*"mp4v"), fps, (int(width), int(height))
-        )
+    save_folder = os.path.join(
+        vis_folder, time.strftime("%Y_%m_%d_%H_%M_%S", current_time)
+    )
+    os.makedirs(save_folder, exist_ok=True)
+    if args.demo == "video":
+        save_path = os.path.join(save_folder, args.path.split("/")[-1])
+    else:
+        save_path = os.path.join(save_folder, "camera.mp4")
+    logger.info(f"video save_path is {save_path}")
+    vid_writer = cv2.VideoWriter(
+        save_path, cv2.VideoWriter_fourcc(*"mp4v"), fps, (int(width), int(height))
+    )
     while True:
         ret_val, frame = cap.read()
+        
         if ret_val:
+            # frame = cv2.resize(frame, (1392,512))	
             outputs, img_info = predictor.inference(frame)
-            result_frame = predictor.visual(outputs[0], img_info, predictor.confthre)
+            result_frame = predictor.visual(outputs[0], img_info, predictor.confthre, True)
+            # result_frame = cv2.resize(result_frame, (1920, 1080))	
             if args.save_result:
                 vid_writer.write(result_frame)
-            else:
-                cv2.namedWindow("yolox", cv2.WINDOW_NORMAL)
-                cv2.imshow("yolox", result_frame)
             ch = cv2.waitKey(1)
             if ch == 27 or ch == ord("q") or ch == ord("Q"):
                 break
@@ -573,7 +544,7 @@ def main(exp, args):
         exp.test_size = (args.tsize, args.tsize)
 
     model = exp.get_model()
-    logger.info("Model Summary: {}".format(get_model_info(model, exp.test_size)))
+    # logger.info("Model Summary: {}".format(get_model_info(model, exp.test_size, exp.img_channel)))
 
     if args.device == "gpu":
         model.cuda()
@@ -609,10 +580,9 @@ def main(exp, args):
         trt_file = None
         decoder = None
 
-    predictor = Predictor(
-        model, exp, COCO_CLASSES, trt_file, decoder,
-        args.device, args.fp16, args.legacy,
-    )
+    predictor = Predictor(model, exp, COCO_CLASSES, trt_file, decoder, args.device,
+                          args.fp16, args.legacy )
+
     current_time = time.localtime()
     if args.demo == "image":
         image_demo(predictor, vis_folder, args.path, current_time, args.save_result)
@@ -623,5 +593,4 @@ def main(exp, args):
 if __name__ == "__main__":
     args = make_parser().parse_args()
     exp = get_exp(args.exp_file, args.name)
-
     main(exp, args)
